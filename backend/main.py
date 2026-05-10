@@ -57,25 +57,29 @@ def startup():
     # Initialise database tables
     init_db()
 
-    # Seed admin user — always ensure correct hash and active status
+    # Seed admin user — always sync password hash, role, and status from env vars.
+    # This means whatever ADMIN_PASSWORD is set to in Railway is always the live password,
+    # even if the DB row was created by an earlier deploy with a different value.
     with get_db() as conn:
         existing = conn.execute(
             "SELECT id FROM users WHERE username = ?", (ADMIN_USERNAME,)
         ).fetchone()
+        new_hash = hash_password(ADMIN_PASSWORD)
         if not existing:
             conn.execute(
                 """INSERT INTO users (username, password_hash, role, status)
                    VALUES (?, ?, 'admin', 'active')""",
-                (ADMIN_USERNAME, hash_password(ADMIN_PASSWORD)),
+                (ADMIN_USERNAME, new_hash),
             )
-            print(f"[startup] Admin user '{ADMIN_USERNAME}' seeded.")
+            print(f"[startup] Admin user '{ADMIN_USERNAME}' created.")
         else:
-            # Ensure the admin is always active (never accidentally locked out)
+            # Always overwrite hash so the env-var password is always current
             conn.execute(
-                "UPDATE users SET status='active', role='admin' WHERE username=?",
-                (ADMIN_USERNAME,),
+                """UPDATE users SET password_hash=?, role='admin', status='active'
+                   WHERE username=?""",
+                (new_hash, ADMIN_USERNAME),
             )
-            print(f"[startup] Admin user '{ADMIN_USERNAME}' already exists — status confirmed active.")
+            print(f"[startup] Admin user '{ADMIN_USERNAME}' password synced from env.")
 
         # Mark any proposals that were left in 'pending' from a previous run as error
         # (they'll never complete since the background task died with the process)
