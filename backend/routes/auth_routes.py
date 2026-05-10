@@ -1,4 +1,5 @@
 from typing import Optional
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -73,14 +74,14 @@ ALLOWED_SUFFIX   = ".nitt@gmail.com"
 def google_login():
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(503, "Google OAuth is not configured on this server")
-    params = (
-        f"?client_id={GOOGLE_CLIENT_ID}"
-        f"&redirect_uri={GOOGLE_REDIRECT_URI}"
-        f"&response_type=code"
-        f"&scope=openid%20email%20profile"
-        f"&prompt=select_account"
-    )
-    return RedirectResponse(GOOGLE_AUTH_URL + params)
+    params = urlencode({
+        "client_id":     GOOGLE_CLIENT_ID,
+        "redirect_uri":  GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "scope":         "openid email profile",
+        "prompt":        "select_account",
+    })
+    return RedirectResponse(f"{GOOGLE_AUTH_URL}?{params}")
 
 
 @router.get("/google/callback")
