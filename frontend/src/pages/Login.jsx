@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../api/client";
+import api, { backendUrl } from "../api/client";
 import { useAuth } from "../AuthContext";
 
 function profileComplete(data) {
@@ -73,7 +73,7 @@ export default function Login() {
 
         {/* Google Sign-in — for all team members */}
         <a
-          href="/api/auth/google/login"
+          href={backendUrl("/auth/google/login")}
           style={{
             display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
             width: "100%", padding: "9px 0", border: "1px solid #d4d4d8",

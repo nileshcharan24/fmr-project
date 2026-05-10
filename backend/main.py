@@ -1,12 +1,13 @@
 import logging
 import logging.config
+import os
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from backend.config import FRONTEND_URL, RESOURCES_DIR, OUTPUTS_DIR, TEMP_DIR
+from backend.config import DATABASE_PATH, FRONTEND_URL, RESOURCES_DIR, OUTPUTS_DIR, TEMP_DIR
 from backend.database import get_db, init_db
 from backend.routes.auth_routes import router as auth_router
 from backend.routes.admin_routes import router as admin_router
@@ -77,3 +78,27 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/debug")
+def debug():
+    """Public diagnostic endpoint — visit Railway-URL/debug to verify the backend."""
+    info = {
+        "database_path": str(DATABASE_PATH),
+        "db_file_exists": Path(DATABASE_PATH).exists(),
+        "frontend_url_env": os.getenv("FRONTEND_URL", "(not set)"),
+        "admin_username_env": os.getenv("ADMIN_USERNAME", "(not set)"),
+        "admin_password_set": bool(os.getenv("ADMIN_PASSWORD")),
+    }
+    # Check if admin user exists in DB
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT id, status, role FROM users WHERE username = ?",
+                (os.getenv("ADMIN_USERNAME", "admin"),),
+            ).fetchone()
+            info["admin_in_db"] = dict(row) if row else None
+            info["total_users"] = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    except Exception as e:
+        info["db_error"] = str(e)
+    return info
