@@ -1,6 +1,7 @@
+import os
 import sqlite3
 from contextlib import contextmanager
-from backend.config import DATABASE_PATH
+from backend.config import DATABASE_PATH, OUTPUTS_DIR, TEMP_DIR
 
 
 def get_connection():
@@ -50,6 +51,11 @@ def _migrate(conn):
 
 
 def init_db():
+    # Ensure persistent data directories exist before anything else
+    os.makedirs(str(DATABASE_PATH.parent), exist_ok=True)
+    os.makedirs(str(OUTPUTS_DIR), exist_ok=True)
+    os.makedirs(str(TEMP_DIR), exist_ok=True)
+
     conn = get_connection()
     try:
         # 1. Create all tables first

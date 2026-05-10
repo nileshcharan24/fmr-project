@@ -11,12 +11,15 @@ JWT_SECRET = os.getenv("JWT_SECRET", "changeme")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
 
-# --- Paths (relative to project root) ---
+# --- Paths ---
+# Persistent data lives under /app/data (Railway volume mount).
+# Everything else (resources, temp) stays relative to the project root.
 PROJECT_ROOT  = Path(__file__).parent.parent
+DATA_DIR      = Path(os.getenv("DATA_DIR", "/app/data"))
 RESOURCES_DIR = PROJECT_ROOT / "resources"
-OUTPUTS_DIR   = PROJECT_ROOT / "outputs"
-TEMP_DIR      = PROJECT_ROOT / "temp"
-DATABASE_PATH = PROJECT_ROOT / "database" / "fmr.db"
+OUTPUTS_DIR   = DATA_DIR / "outputs"
+TEMP_DIR      = DATA_DIR / "temp"
+DATABASE_PATH = DATA_DIR / "database" / "fmr.db"
 TEMPLATE_PPTX = PROJECT_ROOT / "resources" / "templates" / "sponsorship_proposal.pptx"
 COVER_LETTER_TEMPLATE = PROJECT_ROOT / "resources" / "templates" / "cover_letter_template.docx"
 
