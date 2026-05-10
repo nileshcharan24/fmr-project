@@ -57,7 +57,11 @@ export default function Login() {
       const me = await api.get("/auth/me");
       nav(profileComplete(me.data) ? "/generate" : "/profile");
     } catch (err) {
-      setError(err.response?.data?.detail || "Login failed");
+      if (err.response) {
+        setError(err.response.data?.detail || `Server error (${err.response.status})`);
+      } else {
+        setError(`Cannot reach backend — check VITE_API_URL. (${err.message})`);
+      }
     } finally {
       setLoading(false);
     }

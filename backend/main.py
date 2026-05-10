@@ -34,9 +34,11 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     return JSONResponse(status_code=422, content={"detail": messages})
 
 # --- CORS ---
+_origins = list({FRONTEND_URL, "http://localhost:5173", "http://localhost:3000"})
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL, "http://localhost:5173", "http://localhost:3000"],
+    allow_origins=_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # covers all Vercel preview/prod URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

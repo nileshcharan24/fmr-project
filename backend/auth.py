@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -8,6 +9,8 @@ from passlib.context import CryptContext
 
 from backend.config import JWT_SECRET, JWT_ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 from backend.database import get_db
+
+log = logging.getLogger(__name__)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -69,14 +72,24 @@ def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
 
 
 def authenticate_user(username: str, password: str) -> Optional[dict]:
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT id, username, password_hash, role, status FROM users WHERE username = ?",
-            (username,),
-        ).fetchone()
+    log.info("Login attempt for username='%s'", username)
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT id, username, password_hash, role, status FROM users WHERE username = ?",
+                (username,),
+            ).fetchone()
+    except Exception as e:
+        log.error("DB error during login for '%s': %s", username, e)
+        return None
 
     if row is None:
+        log.warning("Login failed — user '%s' not found in DB", username)
         return None
+
     if not verify_password(password, row["password_hash"]):
+        log.warning("Login failed — wrong password for user '%s'", username)
         return None
+
+    log.info("Login success for '%s' (role=%s, status=%s)", username, row["role"], row["status"])
     return dict(row)
