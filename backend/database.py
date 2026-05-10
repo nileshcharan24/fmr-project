@@ -26,30 +26,33 @@ def get_db():
 
 
 def _migrate(conn):
-    """Run one-time schema migrations that ALTER TABLE cannot do via CREATE IF NOT EXISTS."""
+    """ALTER TABLE migrations — only called after all CREATE TABLE statements have run."""
     conn.execute("DROP TABLE IF EXISTS draft_sessions")
 
     # users: add status column
-    user_cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
-    if "status" not in user_cols:
+    try:
         conn.execute("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+    except Exception:
+        pass  # column already exists
 
     # proposals: add background-job columns
-    proposal_cols = [r[1] for r in conn.execute("PRAGMA table_info(proposals)").fetchall()]
     for col, definition in [
-        ("job_id",              "TEXT"),
-        ("folder_name",         "TEXT DEFAULT ''"),
-        ("cover_letter",        "TEXT DEFAULT ''"),
-        ("fest_deliverables",   "TEXT DEFAULT ''"),
-        ("company_deliverables","TEXT DEFAULT ''"),
+        ("job_id",               "TEXT"),
+        ("folder_name",          "TEXT DEFAULT ''"),
+        ("cover_letter",         "TEXT DEFAULT ''"),
+        ("fest_deliverables",    "TEXT DEFAULT ''"),
+        ("company_deliverables", "TEXT DEFAULT ''"),
     ]:
-        if col not in proposal_cols:
+        try:
             conn.execute(f"ALTER TABLE proposals ADD COLUMN {col} {definition}")
+        except Exception:
+            pass  # column already exists
 
 
 def init_db():
-    with get_db() as conn:
-        _migrate(conn)
+    conn = get_connection()
+    try:
+        # 1. Create all tables first
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,26 +95,33 @@ def init_db():
             );
 
             CREATE TABLE IF NOT EXISTS draft_sessions (
-                id                   TEXT    PRIMARY KEY,
-                user_id              INTEGER NOT NULL,
-                company_name         TEXT    NOT NULL,
-                tier                 INTEGER NOT NULL,
-                clusters             TEXT    NOT NULL,
-                banner_count         INTEGER NOT NULL,
-                logo_path            TEXT    DEFAULT '',
-                manager_name         TEXT    DEFAULT '',
-                manager_designation  TEXT    DEFAULT '',
-                manager_phone        TEXT    DEFAULT '',
-                manager_email        TEXT    DEFAULT '',
-                outreach_city        TEXT    DEFAULT 'Bangalore',
-                include_csr          INTEGER DEFAULT 0,
-                extra_context        TEXT    DEFAULT '',
-                llm_questions        TEXT    DEFAULT '',
-                fest_deliverables    TEXT    DEFAULT '',
-                company_deliverables TEXT    DEFAULT '',
-                brand_event_description TEXT DEFAULT '',
-                portfolio_name       TEXT    DEFAULT '',
-                created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                id                      TEXT    PRIMARY KEY,
+                user_id                 INTEGER NOT NULL,
+                company_name            TEXT    NOT NULL,
+                tier                    INTEGER NOT NULL,
+                clusters                TEXT    NOT NULL,
+                banner_count            INTEGER NOT NULL,
+                logo_path               TEXT    DEFAULT '',
+                manager_name            TEXT    DEFAULT '',
+                manager_designation     TEXT    DEFAULT '',
+                manager_phone           TEXT    DEFAULT '',
+                manager_email           TEXT    DEFAULT '',
+                outreach_city           TEXT    DEFAULT 'Bangalore',
+                include_csr             INTEGER DEFAULT 0,
+                extra_context           TEXT    DEFAULT '',
+                llm_questions           TEXT    DEFAULT '',
+                fest_deliverables       TEXT    DEFAULT '',
+                company_deliverables    TEXT    DEFAULT '',
+                brand_event_description TEXT    DEFAULT '',
+                portfolio_name          TEXT    DEFAULT '',
+                created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(user_id) REFERENCES users(id)
             );
         """)
+        conn.commit()
+
+        # 2. Run migrations after tables exist
+        _migrate(conn)
+        conn.commit()
+    finally:
+        conn.close()
