@@ -57,19 +57,25 @@ def startup():
     # Initialise database tables
     init_db()
 
-    # Seed admin user if not present
+    # Seed admin user — always ensure correct hash and active status
     with get_db() as conn:
         existing = conn.execute(
             "SELECT id FROM users WHERE username = ?", (ADMIN_USERNAME,)
         ).fetchone()
         if not existing:
             conn.execute(
-                "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
+                """INSERT INTO users (username, password_hash, role, status)
+                   VALUES (?, ?, 'admin', 'active')""",
                 (ADMIN_USERNAME, hash_password(ADMIN_PASSWORD)),
             )
-            print(f"[startup] Admin user '{ADMIN_USERNAME}' created.")
+            print(f"[startup] Admin user '{ADMIN_USERNAME}' seeded.")
         else:
-            print(f"[startup] Admin user '{ADMIN_USERNAME}' already exists.")
+            # Ensure the admin is always active (never accidentally locked out)
+            conn.execute(
+                "UPDATE users SET status='active', role='admin' WHERE username=?",
+                (ADMIN_USERNAME,),
+            )
+            print(f"[startup] Admin user '{ADMIN_USERNAME}' already exists — status confirmed active.")
 
         # Mark any proposals that were left in 'pending' from a previous run as error
         # (they'll never complete since the background task died with the process)
