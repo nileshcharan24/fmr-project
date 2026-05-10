@@ -19,7 +19,8 @@ DATA_DIR      = Path(os.getenv("DATA_DIR", "/app/data"))
 RESOURCES_DIR = PROJECT_ROOT / "resources"
 OUTPUTS_DIR   = DATA_DIR / "outputs"
 TEMP_DIR      = DATA_DIR / "temp"
-DATABASE_PATH = DATA_DIR / "database" / "fmr.db"
+# DATABASE_PATH env var lets Railway override directly if needed
+DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(DATA_DIR / "database" / "fmr.db")))
 TEMPLATE_PPTX = PROJECT_ROOT / "resources" / "templates" / "sponsorship_proposal.pptx"
 COVER_LETTER_TEMPLATE = PROJECT_ROOT / "resources" / "templates" / "cover_letter_template.docx"
 

@@ -1,7 +1,11 @@
+import logging
 import os
 import sqlite3
 from contextlib import contextmanager
-from backend.config import DATABASE_PATH, OUTPUTS_DIR, TEMP_DIR
+
+from backend.config import ADMIN_PASSWORD, ADMIN_USERNAME, DATABASE_PATH, OUTPUTS_DIR, TEMP_DIR
+
+log = logging.getLogger(__name__)
 
 
 def get_connection():
@@ -30,13 +34,11 @@ def _migrate(conn):
     """ALTER TABLE migrations — only called after all CREATE TABLE statements have run."""
     conn.execute("DROP TABLE IF EXISTS draft_sessions")
 
-    # users: add status column
     try:
         conn.execute("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
     except Exception:
         pass  # column already exists
 
-    # proposals: add background-job columns
     for col, definition in [
         ("job_id",               "TEXT"),
         ("folder_name",          "TEXT DEFAULT ''"),
@@ -51,14 +53,17 @@ def _migrate(conn):
 
 
 def init_db():
-    # Ensure persistent data directories exist before anything else
+    # ── 0. Ensure directories exist ───────────────────────────────────────────
     os.makedirs(str(DATABASE_PATH.parent), exist_ok=True)
     os.makedirs(str(OUTPUTS_DIR), exist_ok=True)
     os.makedirs(str(TEMP_DIR), exist_ok=True)
 
+    log.info("DATABASE_PATH = %s", DATABASE_PATH)
+    log.info("ADMIN_USERNAME from env = %s", os.getenv("ADMIN_USERNAME", "(not set, using default)"))
+
     conn = get_connection()
     try:
-        # 1. Create all tables first
+        # ── 1. Create all tables ──────────────────────────────────────────────
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -125,9 +130,37 @@ def init_db():
             );
         """)
         conn.commit()
+        log.info("Tables created/verified.")
 
-        # 2. Run migrations after tables exist
+        # ── 2. Migrations ─────────────────────────────────────────────────────
         _migrate(conn)
         conn.commit()
+        log.info("Migrations applied.")
+
+        # ── 3. Seed admin — always sync hash from env so password is always current
+        from backend.auth import hash_password  # local import avoids circular deps at module level
+        new_hash = hash_password(ADMIN_PASSWORD)
+        existing = conn.execute(
+            "SELECT id FROM users WHERE username = ?", (ADMIN_USERNAME,)
+        ).fetchone()
+        if not existing:
+            conn.execute(
+                """INSERT INTO users (username, password_hash, role, status)
+                   VALUES (?, ?, 'admin', 'active')""",
+                (ADMIN_USERNAME, new_hash),
+            )
+            conn.commit()
+            log.info("Admin user '%s' created successfully.", ADMIN_USERNAME)
+        else:
+            conn.execute(
+                "UPDATE users SET password_hash=?, role='admin', status='active' WHERE username=?",
+                (new_hash, ADMIN_USERNAME),
+            )
+            conn.commit()
+            log.info("Admin user '%s' password synced from env.", ADMIN_USERNAME)
+
+    except Exception:
+        log.exception("init_db() failed")
+        raise
     finally:
         conn.close()

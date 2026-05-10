@@ -1,20 +1,21 @@
 import logging
+import logging.config
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from backend.config import (
-    FRONTEND_URL, RESOURCES_DIR, OUTPUTS_DIR, TEMP_DIR,
-    ADMIN_USERNAME, ADMIN_PASSWORD,
-)
-from backend.database import init_db
-from backend.auth import hash_password
-from backend.database import get_db
+from backend.config import FRONTEND_URL, RESOURCES_DIR, OUTPUTS_DIR, TEMP_DIR
+from backend.database import get_db, init_db
 from backend.routes.auth_routes import router as auth_router
 from backend.routes.admin_routes import router as admin_router
 from backend.routes.proposals_routes import router as proposals_router
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
 
 app = FastAPI(title="FMR Automation Platform", version="1.0.0")
 
@@ -54,42 +55,18 @@ def startup():
                    RESOURCES_DIR / "guidelines", RESOURCES_DIR / "clusters"]:
         Path(folder).mkdir(parents=True, exist_ok=True)
 
-    # Initialise database tables
+    # init_db handles table creation, migrations, and admin seeding in one place
     init_db()
 
-    # Seed admin user — always sync password hash, role, and status from env vars.
-    # This means whatever ADMIN_PASSWORD is set to in Railway is always the live password,
-    # even if the DB row was created by an earlier deploy with a different value.
+    # Mark proposals stuck in 'pending' (background task died with previous process)
     with get_db() as conn:
-        existing = conn.execute(
-            "SELECT id FROM users WHERE username = ?", (ADMIN_USERNAME,)
-        ).fetchone()
-        new_hash = hash_password(ADMIN_PASSWORD)
-        if not existing:
-            conn.execute(
-                """INSERT INTO users (username, password_hash, role, status)
-                   VALUES (?, ?, 'admin', 'active')""",
-                (ADMIN_USERNAME, new_hash),
-            )
-            print(f"[startup] Admin user '{ADMIN_USERNAME}' created.")
-        else:
-            # Always overwrite hash so the env-var password is always current
-            conn.execute(
-                """UPDATE users SET password_hash=?, role='admin', status='active'
-                   WHERE username=?""",
-                (new_hash, ADMIN_USERNAME),
-            )
-            print(f"[startup] Admin user '{ADMIN_USERNAME}' password synced from env.")
-
-        # Mark any proposals that were left in 'pending' from a previous run as error
-        # (they'll never complete since the background task died with the process)
         result = conn.execute(
             """UPDATE proposals SET status='error',
                error_message='Server restarted while generation was in progress. Please try again.'
                WHERE status='pending'"""
         )
         if result.rowcount:
-            print(f"[startup] Marked {result.rowcount} stuck pending proposal(s) as error.")
+            log.info("Marked %d stuck pending proposal(s) as error.", result.rowcount)
 
 
 @app.get("/")
