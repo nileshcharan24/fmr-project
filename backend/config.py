@@ -70,9 +70,10 @@ JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 12  # 12 hours
 
 # --- Frontend URL (for CORS) ---
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+# Use `or` so an empty-string env var still falls back to the dev default
+FRONTEND_URL = os.getenv("FRONTEND_URL") or "http://localhost:5173"
 
 # --- Google OAuth ---
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI  = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
+GOOGLE_REDIRECT_URI  = os.getenv("GOOGLE_REDIRECT_URI") or "http://localhost:8000/auth/google/callback"

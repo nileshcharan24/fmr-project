@@ -88,7 +88,10 @@ def debug():
     info = {
         "database_path": str(DATABASE_PATH),
         "db_file_exists": Path(DATABASE_PATH).exists(),
-        "frontend_url_env": os.getenv("FRONTEND_URL", "(not set)"),
+        "frontend_url_raw_env": os.getenv("FRONTEND_URL", "(not set)"),
+        "frontend_url_effective": FRONTEND_URL,
+        "google_redirect_uri": os.getenv("GOOGLE_REDIRECT_URI", "(not set)"),
+        "google_client_id_set": bool(os.getenv("GOOGLE_CLIENT_ID")),
         "admin_username_env": os.getenv("ADMIN_USERNAME", "(not set)"),
         "admin_password_set": bool(os.getenv("ADMIN_PASSWORD")),
     }
