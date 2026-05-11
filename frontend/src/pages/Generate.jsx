@@ -542,12 +542,92 @@ function StepPolling({ jobId, editedFields, onDone, onError }) {
   );
 }
 
+// ── PPT Download Warning Modal ────────────────────────────────────────────────
+function PptWarningModal({ onConfirm, onCancel, downloading }) {
+  return (
+    <div style={{
+      position: "fixed", inset: 0,
+      background: "rgba(0,0,0,0.55)",
+      zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: "16px",
+    }}>
+      <div style={{
+        background: "#fff",
+        borderRadius: 10,
+        padding: "28px 28px 24px",
+        maxWidth: 520,
+        width: "100%",
+        maxHeight: "90vh",
+        overflowY: "auto",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+      }}>
+        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4, color: "#b45309" }}>
+          ⚠ Review before sending
+        </div>
+        <p style={{ fontSize: 13, color: "#71717a", marginBottom: 16 }}>
+          This proposal was built by AI. Before sending it to a company, verify the following:
+        </p>
+
+        <ul style={{ fontSize: 13, lineHeight: 1.85, paddingLeft: 20, color: "#3f3f46", margin: "0 0 20px" }}>
+          <li>
+            Check <strong>every slide</strong> for placeholder text that wasn't filled in
+            (e.g. <code style={{ fontSize: 12 }}>&lt;company&gt;</code>, <code style={{ fontSize: 12 }}>&lt;cluster&gt;</code>).
+          </li>
+          <li>
+            The <strong>"Deliverables from Company"</strong> slide is AI-generated and may group items
+            incorrectly or miss items — review it carefully.
+          </li>
+          <li>
+            Verify <strong>banner and standee counts</strong> on each cluster slide — make sure
+            they match what you negotiated.
+          </li>
+          <li>
+            Verify <strong>digital post counts</strong> on the Digital Marketing slide.
+          </li>
+          <li>
+            If you included the <strong>Outreach or Brand Engagement</strong> slide, check that
+            the event description is relevant to this company's industry.
+          </li>
+          <li>
+            Confirm the <strong>manager contact details</strong> on the last slide are correct.
+          </li>
+        </ul>
+
+        <p style={{ fontSize: 12, color: "#a1a1aa", marginBottom: 20, fontStyle: "italic" }}>
+          The PPT file is fully editable — open it in PowerPoint and fix anything before sending.
+        </p>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button
+            className="btn btn-primary"
+            onClick={onConfirm}
+            disabled={downloading}
+            style={{ flex: 1, minWidth: 180 }}
+          >
+            {downloading ? "Downloading…" : "I've reviewed it — Download PPT"}
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={onCancel}
+            disabled={downloading}
+            style={{ flex: "0 0 auto" }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ── Step 3 ────────────────────────────────────────────────────────────────────
 function Step3({ result, onReset }) {
-  const [copiedLetter, setCopiedLetter] = useState(false);
-  const [copiedDeliv,  setCopiedDeliv]  = useState(false);
-  const [pptWarning,     setPptWarning]     = useState(false);
-  const [pptDownloading, setPptDownloading] = useState(false);
+  const [copiedLetter,    setCopiedLetter]    = useState(false);
+  const [copiedDeliv,     setCopiedDeliv]     = useState(false);
+  const [showModal,       setShowModal]       = useState(false);
+  const [pptDownloading,  setPptDownloading]  = useState(false);
 
   function copyText(text, setCopied) {
     navigator.clipboard.writeText(text);
@@ -576,7 +656,7 @@ function Step3({ result, onReset }) {
     URL.revokeObjectURL(url);
   }
 
-  async function downloadPptx() {
+  async function performPptxDownload() {
     setPptDownloading(true);
     try {
       const res = await api.get("/proposals/download/pptx", {
@@ -594,7 +674,7 @@ function Step3({ result, onReset }) {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      setPptWarning(true);
+      setShowModal(false);
     } catch (err) {
       alert("Download failed: " + (err.response?.data?.detail || err.message));
     } finally {
@@ -609,14 +689,22 @@ function Step3({ result, onReset }) {
 
   return (
     <div>
+      {showModal && (
+        <PptWarningModal
+          onConfirm={performPptxDownload}
+          onCancel={() => setShowModal(false)}
+          downloading={pptDownloading}
+        />
+      )}
+
       <div className="alert alert-success">Proposal generated successfully!</div>
 
       {/* ── Download buttons ── */}
       <div className="card">
         <div className="section-title">Download Files</div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button className="btn btn-primary" onClick={downloadPptx} disabled={pptDownloading}>
-            {pptDownloading ? "Downloading…" : "Download PPT"}
+          <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+            Download PPT
           </button>
           <button className="btn btn-secondary"
             onClick={() => downloadText(result.cover_letter || "", `${folder}_cover_letter.txt`)}>
@@ -628,20 +716,6 @@ function Step3({ result, onReset }) {
             Download Deliverables (.txt)
           </button>
         </div>
-
-        {pptWarning && (
-          <div className="alert alert-warning" style={{ marginTop: 12, marginBottom: 0 }}>
-            <strong>Important — please verify before sending:</strong>
-            <ul style={{ margin: "6px 0 0 0", paddingLeft: 20, lineHeight: 1.7 }}>
-              <li>Check every slide for AI-generated inaccuracies or placeholder text that wasn't filled in.</li>
-              <li>
-                In particular, verify the <strong>"Deliverables from Company"</strong> slide — it is
-                auto-filled by AI and may be incomplete or incorrectly categorised.
-              </li>
-              <li>Review banner / standee counts and digital post numbers on each cluster slide.</li>
-            </ul>
-          </div>
-        )}
       </div>
 
       {/* ── Cover Letter ── */}
