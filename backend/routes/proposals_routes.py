@@ -28,6 +28,7 @@ Proposal generation — two-phase flow:
 import json
 import logging
 import shutil
+import threading
 import uuid
 from pathlib import Path
 from typing import List, Optional, Union
@@ -49,6 +50,10 @@ router = APIRouter(prefix="/proposals", tags=["proposals"])
 
 _LOGOS_DIR = RESOURCES_DIR / "logos"
 _LOGOS_DIR.mkdir(parents=True, exist_ok=True)
+
+# In-memory store for draft generation jobs (cleared on server restart)
+_draft_jobs: dict = {}
+_draft_jobs_lock = threading.Lock()
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -119,7 +124,13 @@ async def upload_logo(
 # ── Phase 1: Draft ────────────────────────────────────────────────────────────
 
 @router.post("/draft")
-def create_draft(req: DraftRequest, current_user: dict = Depends(get_current_user)):
+def create_draft(
+    req: DraftRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    """Validate inputs, then kick off LLM draft generation as a background task.
+    Returns immediately with a draft_job_id the client can poll."""
     if req.tier not in (1, 2, 3):
         raise HTTPException(400, "tier must be 1, 2, or 3")
     if not req.clusters:
@@ -128,78 +139,118 @@ def create_draft(req: DraftRequest, current_user: dict = Depends(get_current_use
     profile = _get_profile(current_user["id"])
     missing = [f for f in ("full_name", "designation", "email") if not profile.get(f, "").strip()]
     if missing:
-        raise HTTPException(400, f"Complete your profile before generating. Missing: {', '.join(missing)}.")
+        raise HTTPException(
+            400,
+            f"Complete your profile before generating. Missing: {', '.join(missing)}.",
+        )
 
     posts_count = TIER_POSTS[req.tier]
+    job_id = uuid.uuid4().hex
 
+    with _draft_jobs_lock:
+        _draft_jobs[job_id] = {"status": "pending"}
+
+    background_tasks.add_task(
+        _run_draft_bg,
+        job_id=job_id,
+        req_dict=req.model_dump(),
+        user_id=current_user["id"],
+        posts_count=posts_count,
+    )
+
+    return {"draft_job_id": job_id}
+
+
+def _run_draft_bg(job_id: str, req_dict: dict, user_id: int, posts_count: str):
+    """Background worker: calls Gemini, inserts draft_session, stores result."""
     try:
         draft = generate_draft(
-            company_name=req.company_name,
-            tier=req.tier,
-            clusters=req.clusters,
-            banner_count=req.banner_count,
+            company_name=req_dict["company_name"],
+            tier=req_dict["tier"],
+            clusters=req_dict["clusters"],
+            banner_count=req_dict["banner_count"],
             posts_count=posts_count,
-            extra_context=req.extra_context or "",
+            extra_context=req_dict.get("extra_context") or "",
         )
+
+        log.info("Draft LLM done for job %s: keys=%s", job_id, list(draft.keys()))
+
+        questions = draft.get("questions", [])
+        if not isinstance(questions, list):
+            questions = []
+        questions = [str(q) for q in questions]
+
+        session_id = uuid.uuid4().hex
+
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO draft_sessions (
+                    id, user_id, company_name, tier, clusters, banner_count,
+                    logo_path, manager_name, manager_designation, manager_phone,
+                    manager_email, outreach_city, include_csr, extra_context,
+                    llm_questions, fest_deliverables, company_deliverables,
+                    brand_event_description, portfolio_name
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    session_id,
+                    user_id,
+                    req_dict["company_name"],
+                    req_dict["tier"],
+                    json.dumps(req_dict["clusters"]),
+                    req_dict["banner_count"],
+                    req_dict.get("logo_path") or "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    req_dict.get("outreach_city") or "Bangalore",
+                    1 if req_dict.get("include_csr") else 0,
+                    json.dumps({
+                        "extra_context":             req_dict.get("extra_context") or "",
+                        "outreach_event":            req_dict.get("outreach_event") or "Gigahertz",
+                        "include_pronite":           req_dict.get("include_pronite", True),
+                        "include_event_association": req_dict.get("include_event_association", True),
+                        "include_cluster":           req_dict.get("include_cluster", True),
+                        "include_brand_engagement":  req_dict.get("include_brand_engagement", True),
+                        "include_outreach":          req_dict.get("include_outreach", True),
+                    }),
+                    json.dumps(questions),
+                    str(draft.get("fest_deliverables", "")),
+                    str(draft.get("company_deliverables", "")),
+                    str(draft.get("brand_event_description", "")),
+                    str(draft.get("portfolio_name", "")),
+                ),
+            )
+
+        with _draft_jobs_lock:
+            _draft_jobs[job_id] = {
+                "status": "done",
+                "session_id":               session_id,
+                "portfolio_name":           str(draft.get("portfolio_name", "")),
+                "fest_deliverables":        str(draft.get("fest_deliverables", "")),
+                "company_deliverables":     str(draft.get("company_deliverables", "")),
+                "brand_event_description":  str(draft.get("brand_event_description", "")),
+                "questions":                questions,
+            }
+        log.info("Draft job %s done: session_id=%s", job_id, session_id)
+
     except Exception as exc:
-        raise HTTPException(500, f"LLM draft failed: {exc}") from exc
+        log.exception("Draft job %s failed", job_id)
+        with _draft_jobs_lock:
+            _draft_jobs[job_id] = {"status": "error", "error": str(exc)[:800]}
 
-    log.info("draft keys/types: %s", {k: type(v).__name__ for k, v in draft.items()})
-    questions = draft.get("questions", [])
-    if not isinstance(questions, list):
-        questions = []
-    questions = [str(q) for q in questions]
 
-    session_id = uuid.uuid4().hex
-
-    with get_db() as conn:
-        conn.execute(
-            """INSERT INTO draft_sessions (
-                id, user_id, company_name, tier, clusters, banner_count,
-                logo_path, manager_name, manager_designation, manager_phone,
-                manager_email, outreach_city, include_csr, extra_context,
-                llm_questions, fest_deliverables, company_deliverables,
-                brand_event_description, portfolio_name
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                session_id,
-                current_user["id"],
-                req.company_name,
-                req.tier,
-                json.dumps(req.clusters),
-                req.banner_count,
-                req.logo_path or "",
-                "",
-                "",
-                "",
-                "",
-                req.outreach_city or "Bangalore",
-                1 if req.include_csr else 0,
-                json.dumps({
-                    "extra_context":             req.extra_context or "",
-                    "outreach_event":            req.outreach_event or "Gigahertz",
-                    "include_pronite":           req.include_pronite,
-                    "include_event_association": req.include_event_association,
-                    "include_cluster":           req.include_cluster,
-                    "include_brand_engagement":  req.include_brand_engagement,
-                    "include_outreach":          req.include_outreach,
-                }),
-                json.dumps(questions),
-                str(draft.get("fest_deliverables", "")),
-                str(draft.get("company_deliverables", "")),
-                str(draft.get("brand_event_description", "")),
-                str(draft.get("portfolio_name", "")),
-            ),
+@router.get("/draft-jobs/{job_id}")
+def get_draft_job(job_id: str, current_user: dict = Depends(get_current_user)):
+    """Poll for draft generation status. Returns {status, ...data} once done."""
+    with _draft_jobs_lock:
+        job = _draft_jobs.get(job_id)
+    if not job:
+        raise HTTPException(
+            404,
+            "Draft job not found. The server may have restarted — please try again.",
         )
-
-    return {
-        "session_id":               session_id,
-        "portfolio_name":           str(draft.get("portfolio_name", "")),
-        "fest_deliverables":        str(draft.get("fest_deliverables", "")),
-        "company_deliverables":     str(draft.get("company_deliverables", "")),
-        "brand_event_description":  str(draft.get("brand_event_description", "")),
-        "questions":                questions,
-    }
+    return job
 
 
 # ── Phase 2: Kick off background generation ───────────────────────────────────

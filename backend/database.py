@@ -159,6 +159,23 @@ def init_db():
             conn.commit()
             log.info("Admin user '%s' password synced from env.", ADMIN_USERNAME)
 
+        # Ensure admin has a user_profiles row so they can generate proposals immediately
+        admin_row = conn.execute(
+            "SELECT id FROM users WHERE username = ?", (ADMIN_USERNAME,)
+        ).fetchone()
+        if admin_row:
+            admin_id = admin_row["id"]
+            profile_exists = conn.execute(
+                "SELECT user_id FROM user_profiles WHERE user_id = ?", (admin_id,)
+            ).fetchone()
+            if not profile_exists:
+                conn.execute(
+                    "INSERT INTO user_profiles (user_id, full_name, designation, email) VALUES (?,?,?,?)",
+                    (admin_id, "Admin", "Admin", "admin@fmr.local"),
+                )
+                conn.commit()
+                log.info("Admin profile row created (placeholder — update via Profile page).")
+
     except Exception:
         log.exception("init_db() failed")
         raise

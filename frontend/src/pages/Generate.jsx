@@ -52,7 +52,7 @@ function UsageBar({ usage }) {
 }
 
 // ── Step 1 ────────────────────────────────────────────────────────────────────
-function Step1({ onDraft }) {
+function Step1({ onDraftJobStarted }) {
   const [form, setForm] = useState({
     company_name: "",
     tier: 1,
@@ -139,10 +139,11 @@ function Step1({ onDraft }) {
 
     try {
       const res = await api.post("/proposals/draft", { ...form, extra_context: fullContext });
-      onDraft(res.data, form);
+      // Backend now returns immediately with a draft_job_id to poll
+      onDraftJobStarted(res.data.draft_job_id, form);
     } catch (err) {
       const d = err.response?.data?.detail;
-      setError(typeof d === "string" ? d : Array.isArray(d) ? d.map(e => e.msg || JSON.stringify(e)).join("; ") : `Failed to generate draft. (${err.message || "network error"})`)
+      setError(typeof d === "string" ? d : Array.isArray(d) ? d.map(e => e.msg || JSON.stringify(e)).join("; ") : `Failed to start draft. (${err.message || "network error"})`)
     } finally {
       setLoading(false);
     }
@@ -391,6 +392,76 @@ function Step2({ draft, companyForm, onJobStarted, onBack }) {
   );
 }
 
+// ── Draft polling step (between Step 1 submit and Step 2) ────────────────────
+function StepDraftPolling({ draftJobId, originalForm, onDraft, onError }) {
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    let stopped = false;
+
+    async function poll() {
+      while (!stopped) {
+        await new Promise((r) => setTimeout(r, 2500));
+        if (stopped) break;
+        try {
+          const res = await api.get(`/proposals/draft-jobs/${draftJobId}`);
+          const data = res.data;
+
+          if (data.status === "done") {
+            stopped = true;
+            onDraft(data, originalForm);
+            return;
+          }
+
+          if (data.status === "error") {
+            stopped = true;
+            setErrorMsg(data.error || "Draft generation failed. Please try again.");
+            return;
+          }
+          // status === 'pending' — keep polling
+        } catch (err) {
+          if (err.response?.status === 404) {
+            stopped = true;
+            setErrorMsg("Server restarted during generation. Please try again.");
+            return;
+          }
+          console.warn("Draft poll error:", err.message);
+        }
+      }
+    }
+
+    poll();
+    return () => { stopped = true; };
+  }, [draftJobId]);
+
+  if (errorMsg) {
+    return (
+      <div>
+        <div className="alert alert-error">
+          <strong>Draft generation failed:</strong> {errorMsg}
+        </div>
+        <button className="btn btn-secondary" onClick={onError}>← Start Over</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card" style={{ textAlign: "center", padding: 48 }}>
+      <div style={{ marginBottom: 20 }}>
+        <span className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Generating draft…</div>
+      <div style={{ fontSize: 13, color: "#71717a" }}>
+        Analysing company details and drafting deliverables with AI…
+      </div>
+      <div style={{ fontSize: 12, color: "#a1a1aa", marginTop: 16 }}>
+        This takes 20–60 seconds. You can switch tabs — we'll have it ready when you come back.
+      </div>
+    </div>
+  );
+}
+
+
 // ── Polling step (between Step 2 and Step 3) ──────────────────────────────────
 function StepPolling({ jobId, editedFields, onDone, onError }) {
   const [msgIndex, setMsgIndex] = useState(0);
@@ -631,35 +702,68 @@ function Step3({ result, onReset }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function Generate() {
-  const [step,        setStep]       = useState(1);
-  const [draft,       setDraft]      = useState(null);
-  const [companyForm, setCompanyForm]= useState(null);
-  const [jobId,       setJobId]      = useState(null);
-  const [editedFields,setEditedFields]=useState(null);
-  const [result,      setResult]     = useState(null);
-  const [usage,       setUsage]      = useState(null);
+  const [step,          setStep]         = useState(1);
+  const [draftJobId,    setDraftJobId]   = useState(null);
+  const [draft,         setDraft]        = useState(null);
+  const [companyForm,   setCompanyForm]  = useState(null);
+  const [jobId,         setJobId]        = useState(null);
+  const [editedFields,  setEditedFields] = useState(null);
+  const [result,        setResult]       = useState(null);
+  const [usage,         setUsage]        = useState(null);
 
   useEffect(() => {
     api.get("/proposals/usage").then((r) => setUsage(r.data)).catch(() => {});
   }, [step]);
 
-  function handleDraft(d, f)  { setDraft(d); setCompanyForm(f); setStep(2); }
+  // Step 1 submits → backend returns draft_job_id immediately
+  function handleDraftJobStarted(djid, form) {
+    setDraftJobId(djid);
+    setCompanyForm(form);
+    setStep("draft-polling");
+  }
+
+  // Draft polling completes → backend draft data arrives → show Step 2
+  function handleDraft(d, f) {
+    setDraft(d);
+    setCompanyForm(f);
+    setStep(2);
+  }
+
+  // Step 2 submits → PPT pipeline job starts
   function handleJobStarted(jid, fields) {
     setJobId(jid);
     setEditedFields(fields);
     setStep("polling");
   }
-  function handleDone(r)      { setResult(r); setStep(3); }
-  function reset()            { setStep(1); setDraft(null); setCompanyForm(null); setJobId(null); setEditedFields(null); setResult(null); }
+
+  function handleDone(r) { setResult(r); setStep(3); }
+
+  function reset() {
+    setStep(1);
+    setDraftJobId(null);
+    setDraft(null);
+    setCompanyForm(null);
+    setJobId(null);
+    setEditedFields(null);
+    setResult(null);
+  }
 
   return (
     <div>
       <div className="page-title">Generate Proposal</div>
       <UsageBar usage={usage} />
-      {step === 1           && <Step1 onDraft={handleDraft} />}
-      {step === 2           && <Step2 draft={draft} companyForm={companyForm} onJobStarted={handleJobStarted} onBack={() => setStep(1)} />}
-      {step === "polling"   && <StepPolling jobId={jobId} editedFields={editedFields} onDone={handleDone} onError={reset} />}
-      {step === 3           && <Step3 result={result} onReset={reset} />}
+      {step === 1               && <Step1 onDraftJobStarted={handleDraftJobStarted} />}
+      {step === "draft-polling" && (
+        <StepDraftPolling
+          draftJobId={draftJobId}
+          originalForm={companyForm}
+          onDraft={handleDraft}
+          onError={reset}
+        />
+      )}
+      {step === 2               && <Step2 draft={draft} companyForm={companyForm} onJobStarted={handleJobStarted} onBack={() => setStep(1)} />}
+      {step === "polling"       && <StepPolling jobId={jobId} editedFields={editedFields} onDone={handleDone} onError={reset} />}
+      {step === 3               && <Step3 result={result} onReset={reset} />}
     </div>
   );
 }

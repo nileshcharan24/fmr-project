@@ -1,3 +1,4 @@
+import os
 import shutil
 from datetime import date
 from pathlib import Path
@@ -8,7 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from backend.auth import hash_password, require_admin
-from backend.config import RESOURCES_DIR
+from backend.config import GEMINI_MODEL, RESOURCES_DIR
 from backend.database import get_db
 from backend.services.resource_reader import (
     list_resources,
@@ -17,6 +18,31 @@ from backend.services.resource_reader import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/test-gemini")
+def test_gemini(_: dict = Depends(require_admin)):
+    """Smoke-test: verify the Gemini API key works from Railway's network."""
+    import google.generativeai as genai
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        return {"status": "error", "detail": "GEMINI_API_KEY is not set in environment"}
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        response = model.generate_content("Reply with exactly: API OK")
+        return {
+            "status": "ok",
+            "model": GEMINI_MODEL,
+            "response": response.text.strip(),
+            "key_prefix": api_key[:8] + "...",
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "detail": str(exc),
+            "key_prefix": api_key[:8] + "..." if api_key else "(empty)",
+        }
 
 ALLOWED_RESOURCE_EXTENSIONS = {".docx", ".pptx", ".json", ".pdf", ".png", ".jpg", ".jpeg"}
 
