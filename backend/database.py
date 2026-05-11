@@ -32,7 +32,8 @@ def get_db():
 
 def _migrate(conn):
     """ALTER TABLE migrations — only called after all CREATE TABLE statements have run."""
-    conn.execute("DROP TABLE IF EXISTS draft_sessions")
+    # Note: DROP TABLE IF EXISTS draft_sessions was removed — it was destroying
+    # the table on every startup, causing 'no such table' errors at generation time.
 
     try:
         conn.execute("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
