@@ -8,8 +8,19 @@ def _current_week() -> str:
     return date.today().strftime("%Y-W%W")
 
 
-def get_usage(user_id: int) -> dict:
-    """Return current week's usage for a user."""
+_UNLIMITED_ROLES = {"admin", "cohead"}
+
+
+def get_usage(user_id: int, role: str = "user") -> dict:
+    """Return current week's usage for a user. Unlimited roles get limit=None."""
+    today = date.today()
+    days_until_monday = (7 - today.weekday()) % 7 or 7
+    from datetime import timedelta
+    resets_on = (today + timedelta(days=days_until_monday)).isoformat()
+
+    if role in _UNLIMITED_ROLES:
+        return {"used": 0, "limit": None, "resets_on": resets_on}
+
     week = _current_week()
     with get_db() as conn:
         row = conn.execute(
@@ -18,17 +29,14 @@ def get_usage(user_id: int) -> dict:
         ).fetchone()
 
     used = row["count"] if row else 0
-    # Calculate next Monday
-    today = date.today()
-    days_until_monday = (7 - today.weekday()) % 7 or 7
-    from datetime import timedelta
-    resets_on = (today + timedelta(days=days_until_monday)).isoformat()
-
     return {"used": used, "limit": WEEKLY_LIMIT, "resets_on": resets_on}
 
 
-def check_and_increment(user_id: int) -> None:
-    """Raise an exception if limit is hit, otherwise increment count."""
+def check_and_increment(user_id: int, role: str = "user") -> None:
+    """Raise an exception if limit is hit, otherwise increment count. No-op for unlimited roles."""
+    if role in _UNLIMITED_ROLES:
+        return
+
     from fastapi import HTTPException
 
     week = _current_week()
@@ -40,7 +48,7 @@ def check_and_increment(user_id: int) -> None:
 
         count = row["count"] if row else 0
         if count >= WEEKLY_LIMIT:
-            usage = get_usage(user_id)
+            usage = get_usage(user_id, role)
             raise HTTPException(
                 status_code=429,
                 detail=(

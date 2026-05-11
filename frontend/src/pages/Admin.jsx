@@ -112,6 +112,7 @@ function UsersTab() {
             <label>Role</label>
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
               <option value="user">User</option>
+              <option value="cohead">Co-Head</option>
               <option value="admin">Admin</option>
             </select>
           </div>

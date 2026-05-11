@@ -3,7 +3,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 
-from backend.config import ADMIN_PASSWORD, ADMIN_USERNAME, DATABASE_PATH, OUTPUTS_DIR, TEMP_DIR
+from backend.config import ADMIN_PASSWORD, ADMIN_USERNAME, COHEAD_PASSWORD, COHEAD_USERNAME, DATABASE_PATH, OUTPUTS_DIR, TEMP_DIR
 
 log = logging.getLogger(__name__)
 
@@ -159,6 +159,41 @@ def init_db():
             )
             conn.commit()
             log.info("Admin user '%s' password synced from env.", ADMIN_USERNAME)
+
+        # ── 4. Seed co-head account if env vars are set ───────────────────────
+        if COHEAD_USERNAME and COHEAD_PASSWORD:
+            cohead_hash = hash_password(COHEAD_PASSWORD)
+            existing_cohead = conn.execute(
+                "SELECT id FROM users WHERE username = ?", (COHEAD_USERNAME,)
+            ).fetchone()
+            if not existing_cohead:
+                conn.execute(
+                    """INSERT INTO users (username, password_hash, role, status)
+                       VALUES (?, ?, 'cohead', 'active')""",
+                    (COHEAD_USERNAME, cohead_hash),
+                )
+                conn.commit()
+                log.info("Co-head user '%s' created.", COHEAD_USERNAME)
+            else:
+                conn.execute(
+                    "UPDATE users SET password_hash=?, role='cohead', status='active' WHERE username=?",
+                    (cohead_hash, COHEAD_USERNAME),
+                )
+                conn.commit()
+                log.info("Co-head user '%s' password synced from env.", COHEAD_USERNAME)
+
+            cohead_row = conn.execute(
+                "SELECT id FROM users WHERE username = ?", (COHEAD_USERNAME,)
+            ).fetchone()
+            if cohead_row:
+                cohead_id = cohead_row["id"]
+                if not conn.execute(
+                    "SELECT user_id FROM user_profiles WHERE user_id = ?", (cohead_id,)
+                ).fetchone():
+                    conn.execute(
+                        "INSERT INTO user_profiles (user_id) VALUES (?)", (cohead_id,)
+                    )
+                    conn.commit()
 
         # Ensure admin has a user_profiles row so they can generate proposals immediately
         admin_row = conn.execute(

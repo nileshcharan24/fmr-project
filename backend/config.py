@@ -10,6 +10,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 JWT_SECRET = os.getenv("JWT_SECRET", "changeme")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
+COHEAD_USERNAME = os.getenv("COHEAD_USERNAME", "")
+COHEAD_PASSWORD = os.getenv("COHEAD_PASSWORD", "")
 
 # --- Paths ---
 # Persistent data lives under /app/data (Railway volume mount).

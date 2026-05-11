@@ -272,7 +272,7 @@ def generate_from_draft(
         raise HTTPException(404, "Draft session not found or does not belong to you")
 
     # Enforce rate limit before starting the job (counts even if generation fails)
-    check_and_increment(current_user["id"])
+    check_and_increment(current_user["id"], current_user.get("role", "user"))
 
     profile = _get_profile(current_user["id"])
 
@@ -537,7 +537,7 @@ def download_deliverables(folder: str, current_user: dict = Depends(get_current_
 
 @router.get("/usage")
 def usage(current_user: dict = Depends(get_current_user)):
-    return get_usage(current_user["id"])
+    return get_usage(current_user["id"], current_user.get("role", "user"))
 
 
 @router.get("/my")

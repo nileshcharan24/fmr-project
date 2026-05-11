@@ -40,6 +40,13 @@ const PROGRESS_MESSAGES = [
 
 function UsageBar({ usage }) {
   if (!usage) return null;
+  if (usage.limit === null) {
+    return (
+      <div className="alert alert-info" style={{ marginBottom: 20 }}>
+        Proposals this week: <strong>Unlimited</strong>
+      </div>
+    );
+  }
   const resetsDate = new Date(usage.resets_on + "T00:00:00");
   const resetsLabel = resetsDate.toLocaleDateString("en-GB", {
     weekday: "long", day: "numeric", month: "short",

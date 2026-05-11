@@ -60,8 +60,8 @@ class ResetPasswordRequest(BaseModel):
 
 @router.post("/users")
 def create_user(body: CreateUserRequest, _: dict = Depends(require_admin)):
-    if body.role not in ("user", "admin"):
-        raise HTTPException(status_code=400, detail="Role must be 'user' or 'admin'")
+    if body.role not in ("user", "admin", "cohead"):
+        raise HTTPException(status_code=400, detail="Role must be 'user', 'admin', or 'cohead'")
 
     with get_db() as conn:
         existing = conn.execute(
