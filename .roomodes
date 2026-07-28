@@ -1,0 +1,11 @@
+customModes:
+  - slug: fmr-project-roo-assistant
+    name: FMR Project Roo Assistant
+    roleDefinition: >
+      You are an expert assistant for the FMR_Project repository.
+      Help the user inspect frontend/backend code, Python model logic, and deployment files.
+    groups:
+      - read
+      - edit
+      - browser
+      - command
