@@ -120,19 +120,25 @@ async def google_callback(code: str = None, error: str = None):
     username = email.replace("@gmail.com", "")
     full_name = info.get("name", "")
 
-    is_new_user = False
     with get_db() as conn:
         user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         if not user:
             import secrets
+            # Auto-approved: the .nitt@gmail.com check above is the access gate.
             conn.execute(
                 "INSERT INTO users (username, password_hash, role, status) VALUES (?,?,?,?)",
-                (username, hash_password(secrets.token_hex(32)), "user", "pending"),
+                (username, hash_password(secrets.token_hex(32)), "user", "active"),
             )
             user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-            is_new_user = True
 
         user_id = user["id"]
+        status = user["status"]
+
+        # Clear any leftover 'pending' from before auto-approval was introduced.
+        # 'rejected' is left alone so admins can still block someone.
+        if status == "pending":
+            conn.execute("UPDATE users SET status = 'active' WHERE id = ?", (user_id,))
+            status = "active"
 
         # Upsert profile with Google name/email
         existing = conn.execute(
@@ -153,12 +159,8 @@ async def google_callback(code: str = None, error: str = None):
                 (user_id, full_name, email),
             )
 
-    # Block pending/rejected users from logging in via OAuth too
-    if user["status"] == "pending":
-        if is_new_user:
-            return RedirectResponse(f"{FRONTEND_URL}/login?error=pending_approval")
-        return RedirectResponse(f"{FRONTEND_URL}/login?error=still_pending")
-    if user["status"] == "rejected":
+    # Rejected users stay blocked; everyone else is in.
+    if status == "rejected":
         return RedirectResponse(f"{FRONTEND_URL}/login?error=rejected")
 
     jwt = create_access_token({"sub": str(user_id), "role": user["role"]})

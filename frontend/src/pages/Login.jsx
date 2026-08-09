@@ -96,7 +96,7 @@ export default function Login() {
           Sign in with Google
         </a>
         <p style={{ fontSize: 11, color: "#a1a1aa", textAlign: "center", marginTop: 8, marginBottom: 0 }}>
-          Only .nitt@gmail.com accounts are permitted. New accounts need admin approval.
+          Only .nitt@gmail.com accounts are permitted.
         </p>
 
         {/* Divider */}
