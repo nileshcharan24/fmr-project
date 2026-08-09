@@ -1,4 +1,5 @@
 .env
+varsss.txt
 venv/
 __pycache__/
 *.pyc

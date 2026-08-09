@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://fmr-project-production.up.railway.app/:path*" },
+    { "source": "/api/:path*", "destination": "https://fmr-project.onrender.com/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
